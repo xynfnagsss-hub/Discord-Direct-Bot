@@ -1,0 +1,13 @@
+{
+  "name": "discord-direct-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0"
+  }
+}
