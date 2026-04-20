@@ -20,6 +20,7 @@ const prefix = process.env.DISCORD_PREFIX || '!';
 const guildId = process.env.DISCORD_GUILD_ID;
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const warningsPath = path.join(rootDir, 'data/warnings.json');
+const eventLocksDir = path.join(rootDir, 'data/event-locks');
 const colors = {
   info: 0x5865f2,
   success: 0x2ecc71,
@@ -175,6 +176,22 @@ async function loadWarnings() {
 async function saveWarnings(warnings) {
   await fs.mkdir(path.dirname(warningsPath), { recursive: true });
   await fs.writeFile(warningsPath, `${JSON.stringify(warnings, null, 2)}\n`);
+}
+
+async function claimEvent(eventId) {
+  await fs.mkdir(eventLocksDir, { recursive: true });
+  const safeId = eventId.replace(/[^a-zA-Z0-9:-]/g, '_');
+  const lockPath = path.join(eventLocksDir, `${safeId}.lock`);
+  try {
+    const handle = await fs.open(lockPath, 'wx');
+    await handle.writeFile(String(Date.now()));
+    await handle.close();
+    setTimeout(() => fs.rm(lockPath, { force: true }).catch(() => {}), 300000);
+    return true;
+  } catch (error) {
+    if (error.code === 'EEXIST') return false;
+    throw error;
+  }
 }
 
 function warningKey(guildIdValue, userId) {
@@ -385,7 +402,8 @@ async function handleTicketButton(interaction) {
     return interaction.reply(responsePayload(createEmbed('Missing Permission', 'I need Manage Channels permission to create tickets.', colors.danger), true));
   }
 
-  const existing = interaction.guild.channels.cache.find(
+  const channels = await interaction.guild.channels.fetch();
+  const existing = channels.find(
     (channel) =>
       channel.type === ChannelType.GuildText &&
       channel.name.startsWith(ticketChannelName(interaction.user)) &&
@@ -472,6 +490,8 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  if (!(await claimEvent(`interaction:${interaction.id}`))) return;
+
   if (interaction.isButton()) {
     try {
       if (interaction.customId === 'ticket:close') {
@@ -513,6 +533,7 @@ client.on('interactionCreate', async (interaction) => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild || !message.content.startsWith(prefix)) return;
+  if (!(await claimEvent(`message:${message.id}`))) return;
   const [rawName, ...args] = message.content.slice(prefix.length).trim().split(/\s+/);
   const name = rawName?.toLowerCase();
   if (!name) return;
